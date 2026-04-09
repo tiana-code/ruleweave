@@ -4,7 +4,7 @@ class TemplateRenderer<C>(
     private val fieldResolver: FieldResolver<C>
 ) {
 
-    private val pattern = Regex("\\{\\{(\\w+)}}")
+    private val pattern = Regex("\\{\\{([\\w.\\-]+)}}")
 
     fun render(template: String, context: C): String {
         var result = template

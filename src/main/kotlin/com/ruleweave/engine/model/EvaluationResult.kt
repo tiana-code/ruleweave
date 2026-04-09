@@ -8,8 +8,9 @@ data class EvaluationResult(
     val evaluatedRules: Int,
     val matchedRules: Int,
     val actions: List<RuleActionResult>,
+    val traces: List<RuleTrace> = emptyList(),
     val evaluationTimeMs: Long,
-    val timestamp: Instant = Instant.now()
+    val timestamp: Instant
 )
 
 data class RuleActionResult(

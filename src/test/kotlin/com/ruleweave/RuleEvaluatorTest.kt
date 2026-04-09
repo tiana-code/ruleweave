@@ -2,8 +2,12 @@ package com.ruleweave
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import com.ruleweave.engine.ActionBuilder
+import com.ruleweave.engine.ConditionEvaluator
 import com.ruleweave.engine.FieldResolver
+import com.ruleweave.engine.RuleCompiler
 import com.ruleweave.engine.RuleEvaluatorImpl
+import com.ruleweave.engine.TemplateRenderer
 import com.ruleweave.engine.model.Priority
 import com.ruleweave.engine.model.Rule
 import org.junit.jupiter.api.BeforeEach
@@ -24,8 +28,14 @@ class RuleEvaluatorTest {
 
     private val fixedClock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC)
 
-    private fun evaluator(vararg rules: Rule) =
-        RuleEvaluatorImpl(rules.toList(), mapResolver, objectMapper, fixedClock)
+    private fun evaluator(vararg rules: Rule): RuleEvaluatorImpl<Map<String, Any?>> {
+        val compiler = RuleCompiler(objectMapper)
+        val result = compiler.compile(rules.toList())
+        val conditionEvaluator = ConditionEvaluator(mapResolver)
+        val templateRenderer = TemplateRenderer(mapResolver)
+        val actionBuilder = ActionBuilder(templateRenderer, fixedClock)
+        return RuleEvaluatorImpl(result.compiled, conditionEvaluator, actionBuilder, fixedClock)
+    }
 
     private fun rule(
         conditionsJson: String,
@@ -275,7 +285,12 @@ class RuleEvaluatorTest {
             actionsJson = "[]",
             priority = 50
         )
-        val eval = RuleEvaluatorImpl(listOf(ruleVar), throwingResolver, objectMapper, fixedClock)
+        val compiler = RuleCompiler(objectMapper)
+        val compiled = compiler.compile(listOf(ruleVar))
+        val conditionEvaluator = ConditionEvaluator(throwingResolver)
+        val templateRenderer = TemplateRenderer(throwingResolver)
+        val actionBuilder = ActionBuilder(templateRenderer, fixedClock)
+        val eval = RuleEvaluatorImpl(compiled.compiled, conditionEvaluator, actionBuilder, fixedClock)
         val result = eval.evaluate(UUID.randomUUID(), mapOf("flag" to "not-expected"))
         assertEquals(0, result.matchedRules)
         assertFalse(rightSideAccessed)
@@ -399,13 +414,37 @@ class RuleEvaluatorTest {
 
     @Test
     fun `invalid conditionsJson does not throw but skips rule`() {
-        val ruleVar = Rule(
+        val compiler = RuleCompiler(objectMapper)
+        val badRule = Rule(
             name = "bad-json",
             conditionsJson = "not valid json",
             actionsJson = "[]",
             priority = 50
         )
-        val result = evaluator(ruleVar).evaluate(UUID.randomUUID(), ctx("x" to "1"))
-        assertEquals(0, result.matchedRules)
+        val result = compiler.compile(listOf(badRule))
+        assertEquals(0, result.compiled.size)
+    }
+
+    @Test
+    fun `RuleCompiler reports error for invalid JSON`() {
+        val compiler = RuleCompiler(objectMapper)
+        val badRule = Rule(name = "bad", conditionsJson = "not json", actionsJson = "[]")
+        val result = compiler.compile(listOf(badRule))
+        assertTrue(result.hasErrors)
+        assertEquals(1, result.errors.size)
+        assertEquals("bad", result.errors.first().ruleName)
+        assertTrue(result.compiled.isEmpty())
+    }
+
+    @Test
+    fun `evaluation result includes condition traces`() {
+        val ruleVar = rule("""[{"field":"speed","operator":"GREATER_THAN","value":20}]""")
+        val result = evaluator(ruleVar).evaluate(UUID.randomUUID(), ctx("speed" to 25.0))
+        assertTrue(result.traces.isNotEmpty())
+        val trace = result.traces.first()
+        assertTrue(trace.matched)
+        assertEquals("speed", trace.conditionTraces.first().field)
+        assertEquals(25.0, trace.conditionTraces.first().actualValue)
+        assertTrue(trace.conditionTraces.first().matched)
     }
 }
