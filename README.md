@@ -20,6 +20,18 @@ You have domain objects (vessels, sensors, assets) and a set of configurable rul
 - `EvaluationTrace` — per-rule and per-condition debug trace included in every `EvaluationResult`
 - Threshold-based alert engine with severity levels and cooldown configuration
 
+## Production Context
+
+Extracted from a maritime SaaS platform where alert rules are configured through a web UI and evaluated in real time against vessel telemetry data.
+
+<p align="center">
+  <img src="docs/alert-rules-list.png" alt="Alert rules list" width="720" />
+</p>
+
+<p align="center">
+  <img src="docs/alert-rule-create.png" alt="Create alert rule wizard" width="420" />
+</p>
+
 ## Compatibility
 
 | Component  | Version     |
