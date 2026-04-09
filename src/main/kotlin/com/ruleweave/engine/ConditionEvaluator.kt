@@ -1,11 +1,17 @@
 package com.ruleweave.engine
 
 import com.ruleweave.engine.model.Condition
+import com.ruleweave.engine.model.ConditionTrace
 import com.ruleweave.engine.model.LogicalOperator
 import com.ruleweave.engine.model.Operator
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
+
+data class ConditionEvaluationResult(
+    val matched: Boolean,
+    val traces: List<ConditionTrace>
+)
 
 class ConditionEvaluator<C>(
     private val fieldResolver: FieldResolver<C>
@@ -25,6 +31,54 @@ class ConditionEvaluator<C>(
         }
 
         return result
+    }
+
+    fun evaluateWithTrace(conditions: List<Condition>, context: C): ConditionEvaluationResult {
+        if (conditions.isEmpty()) return ConditionEvaluationResult(matched = true, traces = emptyList())
+
+        val traces = mutableListOf<ConditionTrace>()
+
+        val firstActual = fieldResolver.resolve(conditions.first().field, context)
+        val firstMatched = evaluateSingle(conditions.first(), context)
+        traces.add(
+            ConditionTrace(
+                field = conditions.first().field,
+                operator = conditions.first().operator,
+                expectedValue = conditions.first().value,
+                actualValue = firstActual,
+                matched = firstMatched
+            )
+        )
+
+        var result = firstMatched
+
+        for (i in 1 until conditions.size) {
+            val condition = conditions[i]
+            val shouldEvaluate = when (condition.logicalOperator) {
+                LogicalOperator.AND -> result
+                LogicalOperator.OR -> !result
+            }
+
+            val condMatched = if (shouldEvaluate) evaluateSingle(condition, context) else false
+            val actualValue = if (shouldEvaluate) fieldResolver.resolve(condition.field, context) else null
+
+            traces.add(
+                ConditionTrace(
+                    field = condition.field,
+                    operator = condition.operator,
+                    expectedValue = condition.value,
+                    actualValue = actualValue,
+                    matched = if (shouldEvaluate) condMatched else false
+                )
+            )
+
+            result = when (condition.logicalOperator) {
+                LogicalOperator.AND -> if (!result) false else condMatched
+                LogicalOperator.OR -> if (result) true else condMatched
+            }
+        }
+
+        return ConditionEvaluationResult(matched = result, traces = traces)
     }
 
     private fun evaluateSingle(condition: Condition, context: C): Boolean {

@@ -1,21 +1,23 @@
 # ruleweave
 
-A Kotlin library for evaluating JSON-defined conditions against arbitrary context objects, with a threshold-based alert engine.
+A pure Kotlin library for evaluating JSON-defined conditions against arbitrary context objects, with a threshold-based alert engine.
 
 ## What Problem It Solves
 
-You have domain objects (vessels, sensors, assets) and a set of configurable rules that should fire when certain field conditions are met. Instead of hardcoding `if/else` chains, ruleweave lets you store rules as JSON, evaluate them at runtime against any context type, and get back structured results with priority and SLA deadlines.
+You have domain objects (vessels, sensors, assets) and a set of configurable rules that should fire when certain field conditions are met. Instead of hardcoding `if/else` chains, ruleweave lets you store rules as JSON, compile them explicitly, evaluate at runtime against any context type, and get back structured results with priority, SLA deadlines, and per-condition traces.
 
 ## Features
 
+- No Spring dependency — pure Kotlin library
 - JSON condition lists with AND/OR chaining
 - Short-circuit evaluation: AND stops on first false, OR stops on first true
 - 10 operators: `EQUALS`, `NOT_EQUALS`, `GREATER_THAN`, `LESS_THAN`, `GREATER_THAN_OR_EQUALS`, `LESS_THAN_OR_EQUALS`, `CONTAINS`, `IN`, `NOT_IN`, `BETWEEN`
 - Generic `FieldResolver<C>` interface — plug in any context type (map, entity, DTO)
-- Template interpolation: `{{fieldName}}` in rule names and descriptions
+- Template interpolation: `{{fieldName}}`, `{{vessel.id}}`, `{{sensor-status}}` in rule names and descriptions
 - Priority inference from numeric rule weight → `CRITICAL / HIGH / MEDIUM / LOW / INFO`
 - SLA deadlines auto-computed from priority (CRITICAL: 12 h, HIGH: 24 h, MEDIUM: 72 h)
-- Rules compiled once at construction time; invalid `conditionsJson` is skipped with a log error
+- Explicit compile step via `RuleCompiler` with structured `RuleCompilationError` per invalid rule
+- `EvaluationTrace` — per-rule and per-condition debug trace included in every `EvaluationResult`
 - Threshold-based alert engine with severity levels and cooldown configuration
 
 ## Compatibility
@@ -23,29 +25,31 @@ You have domain objects (vessels, sensors, assets) and a set of configurable rul
 | Component  | Version     |
 |------------|-------------|
 | Kotlin     | 1.9+        |
-| Spring Boot | 3.2+       |
 | Java       | 21          |
-| Jackson    | 2.x         |
+| Jackson    | 2.17+       |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A[Rule Definition\nconditionsJson + priority] --> B[Compiled Conditions\nList<Condition>]
-    B --> C{Operator Dispatch\nEQUALS / GT / BETWEEN / IN ...}
-    C --> D[Field Resolution\nFieldResolver<C>.resolve]
-    D --> E[EvaluationResult\nmatched rules + actions]
-    E --> F[Alert Engine\nAlertRuleEvaluator]
+    A[Rule Definition\nconditionsJson + priority] --> B[RuleCompiler\ncompile + error reporting]
+    B --> C[CompiledRule\nList&lt;Condition&gt;]
+    C --> D{Operator Dispatch\nEQUALS / GT / BETWEEN / IN ...}
+    D --> E[Field Resolution\nFieldResolver&lt;C&gt;.resolve]
+    E --> F[EvaluationResult\nactions + traces]
+    F --> G[Alert Engine\nAlertRuleEvaluator]
 ```
 
 **Flow:**
 
-1. `RuleEvaluatorImpl` deserializes `conditionsJson` → `List<Condition>` once at construction via Jackson.
-2. On each `evaluate()` call, conditions are chained left-to-right using each condition's `logicalOperator` (`AND`/`OR`) with short-circuit semantics.
-3. For each condition, `FieldResolver.resolve(field, context)` extracts the value from the context object.
-4. The matching operator is dispatched; numeric comparisons use safe `toDoubleOrNull()` coercion — non-numeric values return `false` rather than throwing.
-5. Matched rules produce `RuleActionResult` objects with interpolated titles, priority, and SLA deadlines computed from an injectable `Clock`.
-6. `AlertRuleEvaluatorImpl` evaluates `AlertRule` thresholds and creates `ManagedAlert` records.
+1. `RuleCompiler.compile(rules)` deserializes `conditionsJson` → `List<Condition>` for each rule. Invalid rules produce `RuleCompilationError` entries rather than silently being dropped; callers can inspect or fail-fast on errors.
+2. `RuleEvaluatorImpl` takes a `List<CompiledRule>` and evaluates on each `evaluate()` call.
+3. Conditions are chained left-to-right using each condition's `logicalOperator` (`AND`/`OR`) with short-circuit semantics.
+4. For each condition, `FieldResolver.resolve(field, context)` extracts the value from the context object.
+5. The matching operator is dispatched; numeric comparisons use safe `toDoubleOrNull()` coercion — non-numeric values return `false` rather than throwing.
+6. Matched rules produce `RuleActionResult` objects with interpolated titles, priority, and SLA deadlines computed from an injectable `Clock`.
+7. Each evaluation produces a `List<RuleTrace>` in the result, one per active rule, with per-condition `ConditionTrace` entries for debugging.
+8. `AlertRuleEvaluatorImpl` evaluates `AlertRule` thresholds and creates `ManagedAlert` records.
 
 ## Quick Start
 
@@ -64,12 +68,33 @@ val rule = Rule(
     priority = 15
 )
 
-// 3. Evaluate (synchronous — no coroutines needed)
-val evaluator = RuleEvaluatorImpl(listOf(rule), resolver, objectMapper)
+// 3. Compile — check for errors before evaluating
+val compiler = RuleCompiler(objectMapper)
+val compilationResult = compiler.compile(listOf(rule))
+if (compilationResult.hasErrors) {
+    compilationResult.errors.forEach { error ->
+        logger.error { "Rule '${error.ruleName}' failed: ${error.message}" }
+    }
+}
+
+// 4. Evaluate
+val conditionEvaluator = ConditionEvaluator(resolver)
+val templateRenderer = TemplateRenderer(resolver)
+val actionBuilder = ActionBuilder(templateRenderer)
+val evaluator = RuleEvaluatorImpl(compilationResult.compiled, conditionEvaluator, actionBuilder)
+
 val result = evaluator.evaluate(entityId, mapOf("speed" to 30.0, "zone" to "open-sea", "vesselId" to "V-42"))
 // result.matchedRules == 1
 // result.actions.first().title == "High Speed Alert for vessel V-42"
 // result.actions.first().actionDeadline == Instant.now(clock) + 24h
+
+// 5. Inspect traces
+result.traces.forEach { ruleTrace ->
+    println("Rule '${ruleTrace.ruleName}' matched=${ruleTrace.matched}")
+    ruleTrace.conditionTraces.forEach { ct ->
+        println("  field=${ct.field} op=${ct.operator} expected=${ct.expectedValue} actual=${ct.actualValue} matched=${ct.matched}")
+    }
+}
 ```
 
 ## Condition JSON Format
@@ -86,6 +111,19 @@ val result = evaluator.evaluate(entityId, mapOf("speed" to 30.0, "zone" to "open
 - Conditions are evaluated left-to-right; `logicalOperator` on each subsequent condition combines it with the running result.
 - `IN` / `NOT_IN` accept a comma-separated string or a JSON array.
 - `BETWEEN` requires exactly two values: `[min, max]` inclusive.
+
+## Template Interpolation
+
+The pattern `{{key}}` supports plain field names, dot-notation, and hyphens:
+
+| Template              | Example resolved value |
+|-----------------------|------------------------|
+| `{{vesselId}}`        | `V-42`                |
+| `{{vessel.id}}`       | `V-42`                |
+| `{{sensor-status}}`   | `OK`                  |
+| `{{metadata.port.name}}` | `Rotterdam`        |
+
+The `FieldResolver` receives the full key including dots and hyphens — resolution semantics are up to the caller.
 
 ## Operators Reference
 

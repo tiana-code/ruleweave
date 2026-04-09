@@ -1,57 +1,50 @@
 package com.ruleweave.engine
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
-import com.ruleweave.engine.model.Condition
 import com.ruleweave.engine.model.EvaluationResult
-import com.ruleweave.engine.model.Rule
-import io.github.oshai.kotlinlogging.KotlinLogging
+import com.ruleweave.engine.model.RuleTrace
 import java.time.Clock
+import java.time.Instant
 import java.util.UUID
 
-private val logger = KotlinLogging.logger {}
-
 class RuleEvaluatorImpl<C>(
-    rules: List<Rule>,
-    fieldResolver: FieldResolver<C>,
-    objectMapper: ObjectMapper,
-    clock: Clock = Clock.systemUTC()
+    private val compiledRules: List<CompiledRule>,
+    private val conditionEvaluator: ConditionEvaluator<C>,
+    private val actionBuilder: ActionBuilder<C>,
+    private val clock: Clock = Clock.systemUTC()
 ) : RuleEvaluator<C> {
 
-    private data class CompiledRule(
-        val rule: Rule,
-        val conditions: List<Condition>
-    )
-
-    private val conditionEvaluator = ConditionEvaluator(fieldResolver)
-    private val templateRenderer = TemplateRenderer(fieldResolver)
-    private val actionBuilder = ActionBuilder(templateRenderer, clock)
-
-    private val compiledRules: List<CompiledRule> = rules.mapNotNull { rule ->
-        try {
-            val conditions: List<Condition> = objectMapper.readValue(rule.conditionsJson)
-            CompiledRule(rule, conditions)
-        } catch (e: Exception) {
-            logger.error(e) { "Failed to compile rule '${rule.name}': invalid conditionsJson" }
-            null
-        }
-    }
-
     override fun evaluate(entityId: UUID, context: C): EvaluationResult {
-        val startTime = System.currentTimeMillis()
+        val startNanos = System.nanoTime()
 
-        val matchedRules = compiledRules.filter { compiled ->
-            compiled.rule.isActive && conditionEvaluator.evaluate(compiled.conditions, context)
+        val traceResults = compiledRules
+            .filter { it.rule.isActive }
+            .map { compiled ->
+                val evalResult = conditionEvaluator.evaluateWithTrace(compiled.conditions, context)
+                Pair(compiled, evalResult)
+            }
+
+        val matchedRules = traceResults.filter { (_, evalResult) -> evalResult.matched }
+
+        val actions = matchedRules.map { (compiled, _) -> actionBuilder.build(compiled.rule, context) }
+
+        val traces = traceResults.map { (compiled, evalResult) ->
+            RuleTrace(
+                ruleName = compiled.rule.name,
+                matched = evalResult.matched,
+                conditionTraces = evalResult.traces
+            )
         }
 
-        val actions = matchedRules.map { compiled -> actionBuilder.build(compiled.rule, context) }
+        val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
 
         return EvaluationResult(
             entityId = entityId,
             evaluatedRules = compiledRules.count { it.rule.isActive },
             matchedRules = matchedRules.size,
             actions = actions,
-            evaluationTimeMs = System.currentTimeMillis() - startTime
+            traces = traces,
+            evaluationTimeMs = elapsedMs,
+            timestamp = Instant.now(clock)
         )
     }
 }
