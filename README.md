@@ -8,16 +8,16 @@ You have domain objects (vessels, sensors, assets) and a set of configurable rul
 
 ## Features
 
-- No Spring dependency — pure Kotlin library
+- No Spring dependency - pure Kotlin library
 - JSON condition lists with AND/OR chaining
 - Short-circuit evaluation: AND stops on first false, OR stops on first true
 - 10 operators: `EQUALS`, `NOT_EQUALS`, `GREATER_THAN`, `LESS_THAN`, `GREATER_THAN_OR_EQUALS`, `LESS_THAN_OR_EQUALS`, `CONTAINS`, `IN`, `NOT_IN`, `BETWEEN`
-- Generic `FieldResolver<C>` interface — plug in any context type (map, entity, DTO)
+- Generic `FieldResolver<C>` interface - plug in any context type (map, entity, DTO)
 - Template interpolation: `{{fieldName}}`, `{{vessel.id}}`, `{{sensor-status}}` in rule names and descriptions
 - Priority inference from numeric rule weight → `CRITICAL / HIGH / MEDIUM / LOW / INFO`
 - SLA deadlines auto-computed from priority (CRITICAL: 12 h, HIGH: 24 h, MEDIUM: 72 h)
 - Explicit compile step via `RuleCompiler` with structured `RuleCompilationError` per invalid rule
-- `EvaluationTrace` — per-rule and per-condition debug trace included in every `EvaluationResult`
+- `EvaluationTrace` - per-rule and per-condition debug trace included in every `EvaluationResult`
 - Threshold-based alert engine with severity levels and cooldown configuration
 
 ## Production Context
@@ -58,7 +58,7 @@ flowchart LR
 2. `RuleEvaluatorImpl` takes a `List<CompiledRule>` and evaluates on each `evaluate()` call.
 3. Conditions are chained left-to-right using each condition's `logicalOperator` (`AND`/`OR`) with short-circuit semantics.
 4. For each condition, `FieldResolver.resolve(field, context)` extracts the value from the context object.
-5. The matching operator is dispatched; numeric comparisons use safe `toDoubleOrNull()` coercion — non-numeric values return `false` rather than throwing.
+5. The matching operator is dispatched; numeric comparisons use safe `toDoubleOrNull()` coercion - non-numeric values return `false` rather than throwing.
 6. Matched rules produce `RuleActionResult` objects with interpolated titles, priority, and SLA deadlines computed from an injectable `Clock`.
 7. Each evaluation produces a `List<RuleTrace>` in the result, one per active rule, with per-condition `ConditionTrace` entries for debugging.
 8. `AlertRuleEvaluatorImpl` evaluates `AlertRule` thresholds and creates `ManagedAlert` records.
@@ -80,7 +80,7 @@ val rule = Rule(
     priority = 15
 )
 
-// 3. Compile — check for errors before evaluating
+// 3. Compile - check for errors before evaluating
 val compiler = RuleCompiler(objectMapper)
 val compilationResult = compiler.compile(listOf(rule))
 if (compilationResult.hasErrors) {
@@ -135,7 +135,7 @@ The pattern `{{key}}` supports plain field names, dot-notation, and hyphens:
 | `{{sensor-status}}`   | `OK`                  |
 | `{{metadata.port.name}}` | `Rotterdam`        |
 
-The `FieldResolver` receives the full key including dots and hyphens — resolution semantics are up to the caller.
+The `FieldResolver` receives the full key including dots and hyphens - resolution semantics are up to the caller.
 
 ## Operators Reference
 
@@ -185,8 +185,8 @@ The `FieldResolver` receives the full key including dots and hyphens — resolut
 
 ## Release Status
 
-`0.1.0-alpha` — API is unstable and subject to change.
+`0.1.0-alpha` - API is unstable and subject to change.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE)
+MIT - see [LICENSE](./LICENSE)
