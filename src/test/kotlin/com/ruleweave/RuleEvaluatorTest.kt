@@ -10,7 +10,6 @@ import com.ruleweave.engine.RuleEvaluatorImpl
 import com.ruleweave.engine.TemplateRenderer
 import com.ruleweave.engine.model.Priority
 import com.ruleweave.engine.model.Rule
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
@@ -51,10 +50,6 @@ class RuleEvaluatorTest {
     )
 
     private fun ctx(vararg pairs: Pair<String, Any?>) = mapOf(*pairs)
-
-    @BeforeEach
-    fun setUp() {
-    }
 
     @Test
     fun `EQUALS matches identical string values`() {
