@@ -30,8 +30,8 @@ class AlertRuleEvaluatorImpl(
         return when (rule.conditionType) {
             AlertConditionType.GREATER_THAN -> value > rule.conditionThreshold
             AlertConditionType.LESS_THAN -> value < rule.conditionThreshold
-            AlertConditionType.EQUALS -> value == rule.conditionThreshold
-            AlertConditionType.NOT_EQUALS -> value != rule.conditionThreshold
+            AlertConditionType.EQUALS -> value.compareTo(rule.conditionThreshold) == 0
+            AlertConditionType.NOT_EQUALS -> value.compareTo(rule.conditionThreshold) != 0
             AlertConditionType.OUT_OF_RANGE -> {
                 val high = rule.conditionThresholdHigh ?: return false
                 value < rule.conditionThreshold || value > high
