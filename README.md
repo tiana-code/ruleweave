@@ -1,6 +1,6 @@
 # ruleweave
 
-A pure Kotlin library for evaluating JSON-defined conditions against arbitrary context objects, with a threshold-based alert engine.
+JSON-defined condition evaluator with threshold-based alert engine. Pure Kotlin, no Spring dependency.
 
 ## What Problem It Solves
 
@@ -20,9 +20,9 @@ You have domain objects (vessels, sensors, assets) and a set of configurable rul
 - `EvaluationTrace` - per-rule and per-condition debug trace included in every `EvaluationResult`
 - Threshold-based alert engine with severity levels and cooldown configuration
 
-## Production Context
+## Context
 
-Extracted from a maritime SaaS platform where alert rules are configured through a web UI and evaluated in real time against vessel telemetry data.
+Designed for systems where alert rules are configured through a web UI and evaluated in real time against telemetry data.
 
 <p align="center">
   <img src="docs/alert-rules-list.png" alt="Alert rules list" width="720" />
@@ -41,16 +41,6 @@ Extracted from a maritime SaaS platform where alert rules are configured through
 | Jackson    | 2.17+       |
 
 ## Architecture
-
-```mermaid
-flowchart LR
-    A[Rule Definition\nconditionsJson + priority] --> B[RuleCompiler\ncompile + error reporting]
-    B --> C[CompiledRule\nList&lt;Condition&gt;]
-    C --> D{Operator Dispatch\nEQUALS / GT / BETWEEN / IN ...}
-    D --> E[Field Resolution\nFieldResolver&lt;C&gt;.resolve]
-    E --> F[EvaluationResult\nactions + traces]
-    F --> G[Alert Engine\nAlertRuleEvaluator]
-```
 
 **Flow:**
 
